@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
@@ -16,7 +17,7 @@ public class InventoryServiceImpl implements InventoryService {
     private final InventoryRepository inventoryRepository;
     @Override
     @Transactional(readOnly = true)
-    public List<Inventory> isInStock(String skuCode) {
+    public Optional<Inventory> isInStock(String skuCode) {
         return inventoryRepository.findBySkuCode(skuCode);
     }
 
