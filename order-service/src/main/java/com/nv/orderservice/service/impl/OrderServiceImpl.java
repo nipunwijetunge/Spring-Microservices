@@ -1,5 +1,7 @@
 package com.nv.orderservice.service.impl;
 
+import brave.Span;
+import brave.Tracer;
 import com.nv.orderservice.dto.InventoryResponse;
 import com.nv.orderservice.dto.OrderLineItemsDTO;
 import com.nv.orderservice.dto.OrderRequest;
@@ -25,6 +27,8 @@ public class OrderServiceImpl implements OrderService {
     private final WebClient.Builder webClientBuilder;
     private final ObservationRegistry observationRegistry;
 
+//   private final Tracer tracer;
+
     @Override
     public String placeOrder(OrderRequest orderRequest) {
         Order order = new Order();
@@ -39,6 +43,8 @@ public class OrderServiceImpl implements OrderService {
         Observation inventoryServiceObservation = Observation.createNotStarted("inventory-service-lookup",
                 this.observationRegistry);
         inventoryServiceObservation.lowCardinalityKeyValue("call", "inventory-service");
+
+//        Span span = this.tracer.nextSpan().name("inventoryServiceLookup");
 
         return inventoryServiceObservation.observe(() -> {
             InventoryResponse[] result = webClientBuilder.build().get()
@@ -58,6 +64,27 @@ public class OrderServiceImpl implements OrderService {
                 throw new IllegalArgumentException("The product is not available, Please try again later.");
             }
         });
+
+//        try (Tracer.SpanInScope ws = this.tracer.withSpanInScope(span.start())) {
+//            InventoryResponse[] result = webClientBuilder.build().get()
+//                    .uri("http://inventory-service/api/inventory", uriBuilder -> uriBuilder.queryParam("skuCode", skuCodes).build())
+//                    .retrieve()
+//                    .bodyToMono(InventoryResponse[].class)
+//                    .block();
+//
+//            assert result != null;
+//            boolean allProductsInStock = Arrays.stream(result).allMatch(InventoryResponse::isInStock);
+//
+//            if (allProductsInStock) {
+//                orderRepository.save(order);
+//
+//                return "Order placed successfully!";
+//            } else {
+//                throw new IllegalArgumentException("The product is not available, Please try again later.");
+//            }
+//        } finally {
+//            span.finish();
+//        }
     }
 
     private OrderLineItems mapToDTO(OrderLineItemsDTO orderLineItemsDTO) {
