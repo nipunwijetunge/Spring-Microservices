@@ -7,5 +7,5 @@ import org.springframework.transaction.annotation.Transactional;
 
 public interface OrderService {
 
-    void placeOrder(OrderRequest orderRequest);
+    String placeOrder(OrderRequest orderRequest);
 }

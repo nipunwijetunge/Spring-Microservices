@@ -3,11 +3,15 @@ package com.nv.orderservice.service.impl;
 import com.nv.orderservice.dto.InventoryResponse;
 import com.nv.orderservice.dto.OrderLineItemsDTO;
 import com.nv.orderservice.dto.OrderRequest;
+import com.nv.orderservice.event.OrderPlacedEvent;
 import com.nv.orderservice.model.Order;
 import com.nv.orderservice.model.OrderLineItems;
 import com.nv.orderservice.repository.OrderRepository;
 import com.nv.orderservice.service.OrderService;
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationRegistry;
 import lombok.RequiredArgsConstructor;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 
@@ -21,9 +25,13 @@ public class OrderServiceImpl implements OrderService {
 
     private final OrderRepository orderRepository;
     private final WebClient.Builder webClientBuilder;
+    private final ObservationRegistry observationRegistry;
+    private final KafkaTemplate<Object, OrderPlacedEvent> kafkaTemplate;
+
+//   private final Tracer tracer;
 
     @Override
-    public void placeOrder(OrderRequest orderRequest) {
+    public String placeOrder(OrderRequest orderRequest) {
         Order order = new Order();
         order.setOrderNumber(UUID.randomUUID().toString());
 
@@ -33,20 +41,53 @@ public class OrderServiceImpl implements OrderService {
 
         List<String> skuCodes = order.getOrderLineItems().stream().map(OrderLineItems::getSkuCode).toList();
 
-        InventoryResponse[] result = webClientBuilder.build().get()
-                .uri("http://inventory-service/api/inventory", uriBuilder -> uriBuilder.queryParam("skuCode", skuCodes).build())
-                .retrieve()
-                .bodyToMono(InventoryResponse[].class)
-                .block();
+        Observation inventoryServiceObservation = Observation.createNotStarted("inventory-service-lookup",
+                this.observationRegistry);
+        inventoryServiceObservation.lowCardinalityKeyValue("call", "inventory-service");
 
-        assert result != null;
-        boolean allProductsInStock = Arrays.stream(result).allMatch(InventoryResponse::isInStock);
+//        Span span = this.tracer.nextSpan().name("inventoryServiceLookup");
 
-        if (allProductsInStock) {
-            orderRepository.save(order);
-        } else {
-            throw new IllegalArgumentException("The product is not available, Please try again later.");
-        }
+        return inventoryServiceObservation.observe(() -> {
+            InventoryResponse[] result = webClientBuilder.build().get()
+                    .uri("http://inventory-service/api/inventory", uriBuilder -> uriBuilder.queryParam("skuCode", skuCodes).build())
+                    .retrieve()
+                    .bodyToMono(InventoryResponse[].class)
+                    .block();
+
+            assert result != null;
+            boolean allProductsInStock = Arrays.stream(result).allMatch(InventoryResponse::isInStock);
+
+            if (allProductsInStock) {
+                orderRepository.save(order);
+
+                kafkaTemplate.send("notificationTopic", new OrderPlacedEvent(order.getOrderNumber()));
+
+                return "Order placed successfully!";
+            } else {
+                throw new IllegalArgumentException("The product is not available, Please try again later.");
+            }
+        });
+
+//        try (Tracer.SpanInScope ws = this.tracer.withSpanInScope(span.start())) {
+//            InventoryResponse[] result = webClientBuilder.build().get()
+//                    .uri("http://inventory-service/api/inventory", uriBuilder -> uriBuilder.queryParam("skuCode", skuCodes).build())
+//                    .retrieve()
+//                    .bodyToMono(InventoryResponse[].class)
+//                    .block();
+//
+//            assert result != null;
+//            boolean allProductsInStock = Arrays.stream(result).allMatch(InventoryResponse::isInStock);
+//
+//            if (allProductsInStock) {
+//                orderRepository.save(order);
+//
+//                return "Order placed successfully!";
+//            } else {
+//                throw new IllegalArgumentException("The product is not available, Please try again later.");
+//            }
+//        } finally {
+//            span.finish();
+//        }
     }
 
     private OrderLineItems mapToDTO(OrderLineItemsDTO orderLineItemsDTO) {
