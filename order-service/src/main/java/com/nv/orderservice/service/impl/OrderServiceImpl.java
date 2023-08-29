@@ -1,10 +1,9 @@
 package com.nv.orderservice.service.impl;
 
-import brave.Span;
-import brave.Tracer;
 import com.nv.orderservice.dto.InventoryResponse;
 import com.nv.orderservice.dto.OrderLineItemsDTO;
 import com.nv.orderservice.dto.OrderRequest;
+import com.nv.orderservice.event.OrderPlacedEvent;
 import com.nv.orderservice.model.Order;
 import com.nv.orderservice.model.OrderLineItems;
 import com.nv.orderservice.repository.OrderRepository;
@@ -12,6 +11,7 @@ import com.nv.orderservice.service.OrderService;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
 import lombok.RequiredArgsConstructor;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 
@@ -26,6 +26,7 @@ public class OrderServiceImpl implements OrderService {
     private final OrderRepository orderRepository;
     private final WebClient.Builder webClientBuilder;
     private final ObservationRegistry observationRegistry;
+    private final KafkaTemplate<Object, OrderPlacedEvent> kafkaTemplate;
 
 //   private final Tracer tracer;
 
@@ -58,6 +59,8 @@ public class OrderServiceImpl implements OrderService {
 
             if (allProductsInStock) {
                 orderRepository.save(order);
+
+                kafkaTemplate.send("notificationTopic", new OrderPlacedEvent(order.getOrderNumber()));
 
                 return "Order placed successfully!";
             } else {
